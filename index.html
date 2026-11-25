@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FaceHider — anonymize photos with emoji</title>
+<style>
+  :root {
+    --surface-page: #ffffff;
+    --surface-panel: #fafafa;
+    --surface-stage: #ededed;
+    --surface-hover: #f0f0f0;
+    --surface-active: #e6e6e6;
+    --text-primary: #171717;
+    --text-secondary: #4d4d4d;
+    --text-tertiary: #6a6a6a;
+    --ring-border: 0 0 0 1px rgba(0, 0, 0, 0.08);
+    --ring-raised: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+    --hairline: #ebebeb;
+    --ink-invert-bg: #171717;
+    --ink-invert-fg: #ffffff;
+    --focus-ring: #0072f5;
+    --danger: #c4241d;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --rail-w: 20rem;
+    --emoji-font: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-page: #0a0a0a;
+      --surface-panel: #141414;
+      --surface-stage: #1b1b1b;
+      --surface-hover: #1f1f1f;
+      --surface-active: #262626;
+      --text-primary: #fafafa;
+      --text-secondary: #a0a0a0;
+      --text-tertiary: #8a8a8a;
+      --ring-border: 0 0 0 1px rgba(255, 255, 255, 0.14);
+      --ring-raised: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 2px 4px rgba(0, 0, 0, 0.4);
+      --hairline: #262626;
+      --ink-invert-bg: #ffffff;
+      --ink-invert-fg: #0a0a0a;
+      --focus-ring: #3b82f6;
+      --danger: #ff6369;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    background: var(--surface-page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow-wrap: anywhere;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100dvb;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    height: 52px;
+    padding-inline: var(--space-4);
+    background: var(--surface-panel);
+    box-shadow: var(--ring-raised);
+    position: relative;
+    z-index: 2;
+  }
+  .brand { display: flex; align-items: baseline; gap: var(--space-3); margin-inline-end: auto; min-width: 0; }
+  .brand-name { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .brand-note { font-size: 12px; font-weight: 500; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary);
+    background: var(--surface-hover);
+    box-shadow: var(--ring-border);
+    border-radius: 9999px;
+    padding: var(--space-1) var(--space-3);
+    white-space: nowrap;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 40px;
+    min-inline-size: 40px;
+    padding-inline: var(--space-3);
+    background: var(--surface-page);
+    box-shadow: var(--ring-border);
+    border: 0;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { background: var(--surface-hover); }
+  .btn:active:not(:disabled) { background: var(--surface-active); transform: translateY(1px); }
+  .btn .icon { inline-size: 16px; block-size: 16px; flex: none; }
+  .btn-primary { background: var(--ink-invert-bg); color: var(--ink-invert-fg); }
+  .btn-primary:hover:not(:disabled) { background: var(--ink-invert-bg); opacity: 0.9; }
+  .btn-primary:active:not(:disabled) { opacity: 0.8; }
+  .btn-danger-armed { color: var(--danger); }
+  .btn-danger-armed:hover { background: var(--surface-hover); }
+
+  /* Workspace: stage main + rail side */
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--rail-w);
+    min-height: 0;
+  }
+  .stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    padding: var(--space-6);
+    background: var(--surface-stage);
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .stage-error {
+    position: absolute;
+    inset-block-start: var(--space-3);
+    inset-inline: var(--space-6);
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--surface-page);
+    box-shadow: var(--ring-border);
+    border-radius: var(--radius-sm);
+    z-index: 3;
+  }
+
+  /* Empty state */
+  .dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    width: min(100%, 30rem);
+    min-block-size: 12rem;
+    padding: var(--space-6);
+    text-align: center;
+    background: var(--surface-page);
+    box-shadow: var(--ring-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+  }
+  .dropzone:hover, .dropzone.dragover { background: var(--surface-hover); }
+  .dropzone.dragover { box-shadow: var(--ring-border), 0 0 0 2px var(--focus-ring); }
+  .dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .dropzone:has(input:focus-visible) { box-shadow: var(--ring-border), 0 0 0 2px var(--focus-ring); }
+  .dropzone-title { font-weight: 600; font-size: 15px; }
+  .dropzone-hint { color: var(--text-secondary); font-size: 13px; max-width: 28rem; }
+  .dropzone-privacy { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-tertiary); font-size: 12px; font-weight: 500; }
+  .dropzone-privacy .icon { inline-size: 14px; block-size: 14px; }
+
+  /* Photo slot */
+  .slot { position: relative; flex: none; box-shadow: var(--ring-border); border-radius: var(--radius-md); }
+  .slot img { display: block; width: 100%; height: 100%; border-radius: var(--radius-md); }
+  .slot-loading {
+    position: relative;
+    width: min(100%, 30rem);
+    aspect-ratio: 4 / 3;
+    border-radius: var(--radius-md);
+    background: var(--surface-hover);
+    overflow: hidden;
+  }
+  .slot-loading::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(100deg, transparent 40%, var(--surface-active) 50%, transparent 60%);
+    animation: shimmer 1.2s linear infinite;
+  }
+  @keyframes shimmer { to { transform: translateX(100%); } }
+  .slot-loaded { container-type: size; cursor: crosshair; }
+  .slot-loaded img { user-select: none; -webkit-user-drag: none; }
+
+  .place-btn { position: absolute; inset: 0; opacity: 0; border: 0; background: none; cursor: crosshair; }
+  .place-btn:focus-visible { opacity: 1; }
+  ::selection { background: var(--surface-active); color: var(--text-primary); }
+
+  .cover {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    inline-size: calc(var(--cover, 9) * 1.3cqw);
+    block-size: calc(var(--cover, 9) * 1.3cqw);
+    transform: translate(-50%, -50%);
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: calc(var(--cover, 9) * 1cqw);
+    line-height: 1;
+    font-family: var(--emoji-font);
+    z-index: 2;
+    border-radius: var(--radius-md);
+    touch-action: none;
+  }
+  .cover .cover-glyph { pointer-events: none; }
+  .cover { transition: transform 120ms ease-out, opacity 120ms ease-out; }
+  .cover-appear { animation: coverIn 120ms ease-out; }
+  @keyframes coverIn { from { transform: translate(-50%, -50%) scale(0.5); opacity: 0.3; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+  .cover:hover { background: rgba(0, 0, 0, 0.14); }
+  .cover.dragging { transition: none; animation: none; cursor: grabbing; }
+  .cover:active { cursor: grabbing; }
+
+  /* Rail */
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--surface-panel);
+    min-height: 0;
+    min-width: 0;
+    border-inline-start: 1px solid var(--hairline);
+  }
+  .rail-label { font-size: 13px; font-weight: 600; margin: 0; }
+  .rail-hint { margin: 0; font-size: 13px; color: var(--text-tertiary); text-wrap: balance; }
+  .search {
+    height: 40px;
+    padding-inline: var(--space-3);
+    background: var(--surface-page);
+    box-shadow: var(--ring-border);
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+  }
+  .search::placeholder { color: var(--text-tertiary); }
+  .size-row { display: flex; align-items: center; gap: var(--space-2); }
+  .size-row label { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .size-row output { font-size: 13px; color: var(--text-secondary); min-inline-size: 3ch; text-align: end; }
+  input[type="range"] { flex: 1; block-size: 40px; accent-color: var(--text-primary); min-inline-size: 0; }
+  .emoji-scroll { flex: 1; min-height: 0; overflow: auto; padding-inline-end: var(--space-1); scrollbar-color: var(--text-tertiary) transparent; scrollbar-width: thin; }
+  .emoji-group + .emoji-group { margin-block-start: var(--space-2); }
+  .emoji-group h3 {
+    position: sticky;
+    inset-block-start: 0;
+    margin: 0;
+    padding: var(--space-2) 0;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-tertiary);
+    background: var(--surface-panel);
+  }
+  .emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(40px, 100%), 1fr));
+    gap: var(--space-2);
+  }
+  .emoji-cell {
+    display: grid;
+    place-items: center;
+    inline-size: 40px;
+    block-size: 40px;
+    padding: 0;
+    border: 0;
+    background: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--emoji-font);
+    font-size: 22px;
+    line-height: 1;
+  }
+  .emoji-cell:hover { background: var(--surface-hover); }
+  .emoji-cell:active { background: var(--surface-active); }
+  .emoji-cell[aria-pressed="true"] { background: var(--surface-active); }
+  .emoji-cell .check { position: absolute; inset: 0; display: none; }
+  .emoji-cell { position: relative; }
+  .emoji-cell[aria-pressed="true"] .check { display: block; }
+  .emoji-cell .check svg { position: absolute; inset-block-end: var(--space-1); inset-inline-end: var(--space-1); inline-size: 10px; block-size: 10px; color: var(--text-primary); }
+  .rail-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--hairline);
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .rail-footer .linkbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 40px;
+    padding: 0 var(--space-2);
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  .rail-footer .linkbtn:hover { color: var(--text-primary); }
+  .rail-footer .icon { inline-size: 14px; block-size: 14px; }
+  .no-match { padding: var(--space-3) 0; font-size: 13px; color: var(--text-tertiary); }
+
+  /* Mobile: same shell, rail becomes a fixed-height row and keeps its internal scroll */
+  @media (max-width: 48rem) {
+    .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 42dvb; }
+    .rail { border-inline-start: 0; border-block-start: 1px solid var(--hairline); }
+    .brand-note { display: none; }
+    .chip { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .btn { padding-inline: var(--space-2); }
+    .btn .btn-label { display: none; }
+    .btn-danger-armed .btn-label { display: inline; }
+    .btn .icon { inline-size: 18px; block-size: 18px; }
+    /* armed Clear is a transient mode: it replaces the other actions so the
+       confirm label always fits, down to 320px */
+    .toolbar:has(.btn-danger-armed) .btn:not(.btn-danger-armed) { display: none; }
+    .dropzone-title { font-size: 17px; }
+    .dropzone-hint, .rail-label, .rail-hint, .size-row label, .size-row output, .rail-footer, .stage-error, .no-match { font-size: 15px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .slot-loading::after { animation: none; }
+    .cover { transition: none; }
+    .cover-appear { animation: coverFade 120ms ease-out; }
+    @keyframes coverFade { from { opacity: 0.2; } to { opacity: 1; } }
+    .btn:active:not(:disabled) { transform: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="toolbar">
+    <div class="brand">
+      <span class="brand-name">FaceHider</span>
+      <span class="brand-note">photos stay on this device</span>
+    </div>
+    <span class="chip" id="countChip" aria-live="polite" hidden>0 faces covered</span>
+    <button class="btn" id="btnShuffle" disabled aria-label="Shuffle all emoji covers">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.8-1.1 2-1.7 3.3-1.7H22"/><path d="m18 2 4 4-4 4"/><path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2"/><path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8"/><path d="m18 14 4 4-4 4"/></svg>
+      <span class="btn-label">Shuffle</span>
+    </button>
+    <button class="btn" id="btnUndo" disabled aria-label="Undo last change">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+      <span class="btn-label">Undo</span>
+    </button>
+    <button class="btn" id="btnClear" disabled aria-label="Clear all emoji covers">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+      <span class="btn-label" id="clearLabel">Clear</span>
+    </button>
+    <button class="btn btn-primary" id="btnDownload" disabled aria-label="Download anonymized image as PNG">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+      <span class="btn-label">Download PNG</span>
+    </button>
+  </header>
+
+  <div class="workspace">
+    <main class="stage" id="stage">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept="image/*">
+        <svg class="icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--text-secondary)"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+        <span class="dropzone-title">Drop a photo here</span>
+        <span class="dropzone-hint">or click to browse, or paste from the clipboard. Then click each face to cover it with a random emoji.</span>
+        <span class="dropzone-privacy">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Nothing is uploaded — everything runs in your browser
+        </span>
+      </label>
+      <div class="slot slot-loading" id="slotLoading" hidden></div>
+      <div class="slot slot-loaded" id="slot" hidden>
+        <button class="place-btn" id="placeBtn" aria-label="Add emoji cover. Click the image to place at that spot; press Enter to place at the center."></button>
+      </div>
+      <p class="stage-error" id="stageError" role="status" hidden></p>
+    </main>
+
+    <aside class="rail" aria-label="Emoji controls">
+      <label class="rail-label" for="emojiSearch">Emoji whitelist</label>
+      <input class="search" id="emojiSearch" type="search" placeholder="Filter by category or paste an emoji" autocomplete="off">
+      <p class="rail-hint">Every emoji you turn on joins the random pool.</p>
+      <div class="size-row">
+        <label for="sizeRange">Cover size</label>
+        <input type="range" id="sizeRange" min="4" max="16" step="1" value="9">
+        <output id="sizeVal" for="sizeRange">9%</output>
+      </div>
+      <div class="emoji-scroll" id="emojiScroll"></div>
+      <div class="rail-footer">
+        <span id="enabledCount">12 enabled</span>
+        <button class="linkbtn" id="btnResetEmojis">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          Reset to starter set
+        </button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- Emoji catalog (curated, no ZWJ sequences) ---------- */
+const CATALOG = [
+  { name: "Faces", emojis: "😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 🥲 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🫢 🫣 🤫 🤔 🫡 🤐 🤨 😐 😑 😶 🫥 😏 😒 🙄 😬 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 🥸 😎 🤓 🧐 😕 🫤 😟 🙁 😮 😯 😲 😳 🥺 🥹 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 ☠️ 💩 🤡 👻 👽 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾 🙈 🙉 🙊 🐵".split(" ") },
+  { name: "Animals", emojis: "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐤 🐥 🐣 🐦 🐧 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🦋 🐌 🐞 🐢 🐍 🐙 🦑 🦐 🦀".split(" ") },
+  { name: "Food", emojis: "🍎 🍏 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🍆 🥔 🥕 🌽 🌶️ 🥒 🥬 🥦 🍄 🥜 🍞 🥐 🥨 🥞 🧇 🧀 🍗 🍤 🍕 🍔 🌭 🌮 🌯 🥗 🍟 🍿 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 🍦 🍹".split(" ") },
+  { name: "Fun and objects", emojis: "⚽ 🏀 🏈 ⚾ 🎾 🎱 🏓 🎮 🎲 🎸 🎹 🥁 🎤 🎧 🎨 🎬 📷 🎁 🎈 🎉 🎊 ⚡ 🔥 💧 ✨ ⭐ 🌟 💫 ❄️ ☀️ 🌈 🌸 🌼 🌻 🌹 🌴 🌵 🍀 🌍 🚀 ✈️ 🚗 🚕 🚲 ⚓ 🏆 🥇 🎯 🎵 🎶 💡 🔔 📌 🧩".split(" ") },
+  { name: "Hearts and symbols", emojis: "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 ✅ ❌ ❓ ❗ 💤 💦 🔒 🔑 🛡️".split(" ") },
+];
+const STARTER = [..."😀😄😂😎🥰🤪🥳😸🙈👻🤖💩"];
+const STARTER_NAMES = {
+  "😀": "grinning face", "😄": "grinning face with smiling eyes", "😂": "face with tears of joy",
+  "😎": "smiling face with sunglasses", "🥰": "smiling face with hearts", "🤪": "zany face",
+  "🥳": "partying face", "😸": "grinning cat", "🙈": "see-no-evil monkey",
+  "👻": "ghost", "🤖": "robot", "💩": "pile of poo",
+};
+
+/* ---------- State ---------- */
+const $ = (id) => document.getElementById(id);
+const STORE_KEY = "facehider.enabled";
+const SIZE_KEY = "facehider.size";
+const els = {
+  countChip: $("countChip"), shuffle: $("btnShuffle"), undo: $("btnUndo"), clear: $("btnClear"),
+  clearLabel: $("clearLabel"), download: $("btnDownload"), stage: $("stage"), dropzone: $("dropzone"),
+  fileInput: $("fileInput"), slotLoading: $("slotLoading"), slot: $("slot"), photo: null,
+  placeBtn: $("placeBtn"), stageError: $("stageError"), search: $("emojiSearch"),
+  sizeRange: $("sizeRange"), sizeVal: $("sizeVal"), scroll: $("emojiScroll"),
+  enabledCount: $("enabledCount"), reset: $("btnResetEmojis"),
+};
+function ensureImg() {
+  if (!els.photo) {
+    els.photo = document.createElement("img");
+    els.photo.alt = "Photo being anonymized";
+    els.slot.insertBefore(els.photo, els.placeBtn);
+  }
+  return els.photo;
+}
+const state = {
+  covers: [],          // { nx, ny, char, el }
+  undoStack: [],
+  enabled: loadEnabled(),
+  coverSize: 9,
+  armedClear: false,
+  clearTimer: null,
+};
+
+function loadEnabled() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORE_KEY));
+    const all = new Set(CATALOG.flatMap((g) => g.emojis));
+    if (Array.isArray(raw)) return new Set(raw.filter((c) => all.has(c)));
+  } catch (e) { /* first visit or corrupted storage: fall through to starter */ }
+  return new Set(STARTER);
+}
+function saveEnabled() { localStorage.setItem(STORE_KEY, JSON.stringify([...state.enabled])); }
+function loadSize() {
+  const n = Number(localStorage.getItem(SIZE_KEY));
+  if (n >= 4 && n <= 16) { state.coverSize = n; els.sizeRange.value = String(n); els.sizeVal.value = n + "%"; }
+}
+function saveSize() { localStorage.setItem(SIZE_KEY, String(state.coverSize)); }
+
+/* ---------- Emoji rail ---------- */
+function buildRail() {
+  els.scroll.textContent = "";
+  const query = els.search.value.trim().toLowerCase();
+  const frag = document.createDocumentFragment();
+  let shown = 0;
+  for (const group of CATALOG) {
+    const match = query && group.name.toLowerCase().includes(query);
+    const cellMatches = group.emojis.filter((c) => match || !query || c.includes(query));
+    if (query && cellMatches.length === 0) continue;
+    shown += cellMatches.length;
+    const section = document.createElement("section");
+    section.className = "emoji-group";
+    const h = document.createElement("h3");
+    h.textContent = group.name;
+    const grid = document.createElement("div");
+    grid.className = "emoji-grid";
+    for (const char of cellMatches) {
+      const b = document.createElement("button");
+      b.className = "emoji-cell";
+      b.type = "button";
+      b.textContent = char;
+      b.style.fontFamily = "var(--emoji-font)";
+      b.setAttribute("aria-pressed", String(state.enabled.has(char)));
+      const name = STARTER_NAMES[char];
+      b.setAttribute("aria-label", `Toggle ${char}${name ? ` (${name})` : ""} in the whitelist`);
+      b.addEventListener("click", () => {
+        const on = state.enabled.has(char);
+        if (on) state.enabled.delete(char); else state.enabled.add(char);
+        b.setAttribute("aria-pressed", String(!on));
+        saveEnabled();
+        updateRailFooter();
+      });
+      const check = document.createElement("span");
+      check.className = "check";
+      check.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+      b.appendChild(check);
+      grid.appendChild(b);
+    }
+    section.append(h, grid);
+    frag.appendChild(section);
+  }
+  if (shown === 0) {
+    const p = document.createElement("p");
+    p.className = "no-match";
+    p.textContent = `No emoji matches "${els.search.value.trim()}". Categories: Faces, Animals, Food, Fun and objects, Hearts and symbols.`;
+    frag.appendChild(p);
+  }
+  els.scroll.appendChild(frag);
+  updateRailFooter();
+}
+function updateRailFooter() {
+  els.enabledCount.textContent = `${state.enabled.size} enabled`;
+}
+
+/* ---------- Image loading ---------- */
+let imgURL = null;
+function showStageError(msg) {
+  els.stageError.textContent = msg;
+  els.stageError.hidden = false;
+}
+function hideStageError() { els.stageError.hidden = true; }
+
+function loadFile(file) {
+  if (!file) return;
+  hideStageError();
+  if (!file.type.startsWith("image/")) {
+    showStageError("That file isn't an image. Try a PNG or JPG.");
+    return;
+  }
+  if (imgURL) URL.revokeObjectURL(imgURL);
+  state.undoStack = [];
+  disarmClear();
+  clearAllCovers(false);
+  els.slot.hidden = true;
+  els.dropzone.hidden = true;
+  els.slotLoading.hidden = false;
+  updateToolbar();
+  imgURL = URL.createObjectURL(file);
+  const myURL = imgURL;
+  const img = ensureImg();
+  img.src = imgURL;
+  const started = Date.now();
+  img.decode().then(() => {
+    const reveal = () => {
+      if (imgURL !== myURL) return;
+      els.slotLoading.hidden = true;
+      els.slot.hidden = false;
+      fitSlot();
+      updateToolbar();
+    };
+    if (Date.now() - started < 300) {
+      reveal();
+    } else {
+      /* keep the skeleton visible for a beat so it never flashes */
+      setTimeout(reveal, 150);
+    }
+  }).catch(() => {
+    if (imgURL !== myURL) return;
+    els.slotLoading.hidden = true;
+    els.dropzone.hidden = false;
+    showStageError("Couldn't read that image. Try a different PNG or JPG.");
+  });
+}
+
+/* Fit the slot to the stage while preserving the image aspect ratio */
+function fitSlot() {
+  const img = els.photo;
+  const nw = img.naturalWidth, nh = img.naturalHeight;
+  if (!nw || !nh) return;
+  const rect = els.stage.getBoundingClientRect();
+  const pad = 48;
+  const availW = Math.max(rect.width - pad, 40);
+  const availH = Math.max(rect.height - pad, 40);
+  const scale = Math.min(availW / nw, availH / nh);
+  els.slot.style.width = Math.round(nw * scale) + "px";
+  els.slot.style.height = Math.round(nh * scale) + "px";
+}
+new ResizeObserver(() => { if (!els.slot.hidden) fitSlot(); }).observe(els.stage);
+
+/* ---------- Placement, dragging, reroll, removal ---------- */
+function pickRandom() {
+  const pool = [...state.enabled];
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function placeAt(nx, ny, announce = true) {
+  const char = pickRandom();
+  if (!char) {
+    showStageError("Turn on at least one emoji in the whitelist panel first.");
+    return;
+  }
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "cover cover-appear";
+  el.setAttribute("aria-label", `Emoji cover ${char}. Click to reroll, double-click to remove, drag to move.`);
+  const glyph = document.createElement("span");
+  glyph.className = "cover-glyph";
+  glyph.textContent = char;
+  el.appendChild(glyph);
+  const cover = { nx, ny, char, el };
+  setCoverPos(cover);
+  el.addEventListener("pointerdown", (e) => startDrag(e, cover));
+  el.addEventListener("dblclick", () => removeCover(cover, true));
+  el.addEventListener("click", (e) => { if (e.detail === 0) rerollCover(cover); });
+  els.slot.appendChild(el);
+  state.covers.push(cover);
+  if (announce) pushUndo({ t: "add", cover });
+  updateToolbar();
+}
+function setCoverPos(cover) {
+  cover.el.style.left = (cover.nx * 100) + "%";
+  cover.el.style.top = (cover.ny * 100) + "%";
+}
+function detachCoverEl(cover) {
+  cover.el.style.opacity = "0";
+  cover.el.style.pointerEvents = "none";
+  cover.el.dataset.detached = "1";
+  setTimeout(() => { if (cover.el.dataset.detached === "1") cover.el.remove(); }, 130);
+}
+function removeCover(cover, record) {
+  const i = state.covers.indexOf(cover);
+  if (i === -1) return;
+  state.covers.splice(i, 1);
+  detachCoverEl(cover);
+  if (record) pushUndo({ t: "del", cover, index: i });
+  updateToolbar();
+}
+function rerollCover(cover) {
+  const prev = cover.char;
+  const next = pickRandom();
+  if (!next || next === prev) return;
+  cover.char = next;
+  cover.el.querySelector(".cover-glyph").textContent = next;
+  cover.el.setAttribute("aria-label", `Emoji cover ${next}. Click to reroll, double-click to remove, drag to move.`);
+  pushUndo({ t: "roll", cover, prev });
+}
+
+function startDrag(e, cover) {
+  if (e.button !== 0 && e.pointerType === "mouse") return;
+  e.preventDefault();
+  const rect = els.slot.getBoundingClientRect();
+  const startX = e.clientX, startY = e.clientY;
+  const from = { nx: cover.nx, ny: cover.ny };
+  let dragging = false;
+  const onMove = (ev) => {
+    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+    if (!dragging && Math.hypot(dx, dy) < 4) return;
+    dragging = true;
+    cover.el.classList.add("dragging");
+    cover.nx = Math.min(1, Math.max(0, from.nx + dx / rect.width));
+    cover.ny = Math.min(1, Math.max(0, from.ny + dy / rect.height));
+    setCoverPos(cover);
+  };
+  const onUp = () => {
+    cover.el.classList.remove("dragging");
+    cover.el.removeEventListener("pointermove", onMove);
+    cover.el.removeEventListener("pointerup", onUp);
+    cover.el.removeEventListener("pointercancel", onUp);
+    if (dragging) {
+      pushUndo({ t: "move", cover, from });
+    } else {
+      rerollCover(cover);
+    }
+  };
+  cover.el.setPointerCapture(e.pointerId);
+  cover.el.addEventListener("pointermove", onMove);
+  cover.el.addEventListener("pointerup", onUp);
+  cover.el.addEventListener("pointercancel", onUp);
+}
+
+els.placeBtn.addEventListener("click", (e) => {
+  const rect = els.slot.getBoundingClientRect();
+  if (e.detail === 0) { /* keyboard activation: place at center */
+    placeAt(0.5, 0.5);
+    return;
+  }
+  placeAt((e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height);
+});
+
+/* ---------- Undo ---------- */
+function pushUndo(op) {
+  state.undoStack.push(op);
+  if (state.undoStack.length > 100) state.undoStack.shift();
+  updateToolbar();
+}
+function undo() {
+  const op = state.undoStack.pop();
+  if (!op) return;
+  switch (op.t) {
+    case "add": {
+      const i = state.covers.indexOf(op.cover);
+      if (i !== -1) { state.covers.splice(i, 1); op.cover.el.remove(); }
+      break;
+    }
+    case "del": {
+      state.covers.splice(Math.min(op.index, state.covers.length), 0, op.cover);
+      delete op.cover.el.dataset.detached;
+      op.cover.el.style.opacity = "";
+      op.cover.el.style.pointerEvents = "";
+      setCoverPos(op.cover);
+      els.slot.appendChild(op.cover.el);
+      break;
+    }
+    case "move": {
+      op.cover.nx = op.from.nx; op.cover.ny = op.from.ny;
+      setCoverPos(op.cover);
+      break;
+    }
+    case "roll": {
+      op.cover.char = op.prev;
+      op.cover.el.querySelector(".cover-glyph").textContent = op.prev;
+      op.cover.el.setAttribute("aria-label", `Emoji cover ${op.prev}. Click to reroll, double-click to remove, drag to move.`);
+      break;
+    }
+    case "clear": {
+      for (const cover of op.covers) {
+        delete cover.el.dataset.detached;
+        cover.el.style.opacity = "";
+        cover.el.style.pointerEvents = "";
+        setCoverPos(cover);
+        els.slot.appendChild(cover.el);
+        state.covers.push(cover);
+      }
+      break;
+    }
+    case "multi": {
+      for (const sub of [...op.ops].reverse()) {
+        sub.cover.char = sub.prev;
+        sub.cover.el.querySelector(".cover-glyph").textContent = sub.prev;
+        sub.cover.el.setAttribute("aria-label", `Emoji cover ${sub.prev}. Click to reroll, double-click to remove, drag to move.`);
+      }
+      break;
+    }
+  }
+  updateToolbar();
+}
+
+/* ---------- Toolbar actions ---------- */
+function updateToolbar() {
+  const hasImage = !els.slot.hidden;
+  const n = state.covers.length;
+  els.undo.disabled = state.undoStack.length === 0;
+  els.shuffle.disabled = !hasImage || n === 0;
+  els.clear.disabled = !hasImage || (n === 0 && !state.armedClear);
+  els.download.disabled = !hasImage || n === 0;
+  els.countChip.hidden = !hasImage;
+  els.countChip.textContent = n === 1 ? "1 face covered" : `${n} faces covered`;
+}
+function shuffleAll() {
+  if (!state.covers.length) return;
+  const ops = [];
+  for (const cover of state.covers) {
+    const prev = cover.char;
+    const next = pickRandom();
+    if (!next || next === prev) continue;
+    cover.char = next;
+    cover.el.querySelector(".cover-glyph").textContent = next;
+    cover.el.setAttribute("aria-label", `Emoji cover ${next}. Click to reroll, double-click to remove, drag to move.`);
+    ops.push({ cover, prev });
+  }
+  if (ops.length) pushUndo({ t: "multi", ops });
+}
+function clearAllCovers(record = true) {
+  if (!state.covers.length) return;
+  if (record) pushUndo({ t: "clear", covers: [...state.covers] });
+  for (const cover of state.covers) detachCoverEl(cover);
+  state.covers = [];
+  updateToolbar();
+}
+els.shuffle.addEventListener("click", shuffleAll);
+els.undo.addEventListener("click", undo);
+els.clear.addEventListener("click", () => {
+  if (!state.armedClear) {
+    state.armedClear = true;
+    els.clear.classList.add("btn-danger-armed");
+    els.clearLabel.textContent = "Confirm clear";
+    els.clear.setAttribute("aria-label", "Clear all emoji covers — click again to confirm");
+    clearTimeout(state.clearTimer);
+    state.clearTimer = setTimeout(disarmClear, 3000);
+    updateToolbar();
+    return;
+  }
+  disarmClear();
+  clearAllCovers(true);
+});
+function disarmClear() {
+  state.armedClear = false;
+  els.clear.classList.remove("btn-danger-armed");
+  els.clearLabel.textContent = "Clear";
+  els.clear.setAttribute("aria-label", "Clear all emoji covers");
+  clearTimeout(state.clearTimer);
+  updateToolbar();
+}
+els.download.addEventListener("click", exportPNG);
+
+/* ---------- Export ---------- */
+const EMOJI_CANVAS_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif';
+async function exportPNG() {
+  const img = els.photo;
+  if (!img.naturalWidth) return;
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.round((state.coverSize / 100) * canvas.width)}px ${EMOJI_CANVAS_FONT}`;
+  for (const cover of state.covers) {
+    ctx.fillText(cover.char, cover.nx * canvas.width, cover.ny * canvas.height);
+  }
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "facehider-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/* ---------- File input, drag & drop, paste ---------- */
+els.fileInput.addEventListener("change", () => loadFile(els.fileInput.files[0]));
+els.dropzone.addEventListener("dragover", (e) => { e.preventDefault(); els.dropzone.classList.add("dragover"); });
+els.dropzone.addEventListener("dragleave", () => els.dropzone.classList.remove("dragover"));
+els.dropzone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  els.dropzone.classList.remove("dragover");
+  loadFile(e.dataTransfer.files[0]);
+});
+els.stage.addEventListener("dragover", (e) => { if (!els.dropzone.hidden) return; e.preventDefault(); });
+els.stage.addEventListener("drop", (e) => {
+  if (!els.dropzone.hidden) return;
+  e.preventDefault();
+  loadFile(e.dataTransfer.files[0]);
+});
+window.addEventListener("paste", (e) => {
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+  if (item) loadFile(item.getAsFile());
+});
+
+/* ---------- Rail wiring ---------- */
+els.search.addEventListener("input", buildRail);
+els.sizeRange.addEventListener("input", () => {
+  state.coverSize = Number(els.sizeRange.value);
+  els.sizeVal.value = state.coverSize + "%";
+  els.slot.style.setProperty("--cover", String(state.coverSize));
+  saveSize();
+});
+els.reset.addEventListener("click", () => {
+  state.enabled = new Set(STARTER);
+  saveEnabled();
+  buildRail();
+});
+
+/* ---------- Keyboard ---------- */
+window.addEventListener("keydown", (e) => {
+  const inField = /^(input|textarea|select)$/i.test(document.activeElement?.tagName || "");
+  if (inField) return;
+  if ((e.key === "Backspace" || e.key === "Delete") && state.covers.length) {
+    e.preventDefault();
+    removeCover(state.covers[state.covers.length - 1], true);
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    undo();
+  }
+});
+
+/* ---------- Init ---------- */
+buildRail();
+loadSize();
+els.slot.style.setProperty("--cover", String(state.coverSize));
+updateToolbar();
+</script>
+</body>
+</html>
